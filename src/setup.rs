@@ -16,8 +16,9 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let config_dir = get_config_dir();
         Self {
-            db_path: PathBuf::from("pwdb.enc"),
+            db_path: config_dir.join("pwdb.enc"),
             default_clear_seconds: 15,
             auto_backup: false,
             backup_path: None,
@@ -30,13 +31,18 @@ pub fn is_first_run() -> bool {
     !get_config_path().exists()
 }
 
+/// Gets the configuration directory
+pub fn get_config_dir() -> PathBuf {
+    if let Some(config_dir) = dirs::config_dir() {
+        config_dir.join("rustwarden")
+    } else {
+        PathBuf::from(".rustwarden")
+    }
+}
+
 /// Gets the path to the configuration file
 pub fn get_config_path() -> PathBuf {
-    if let Some(config_dir) = dirs::config_dir() {
-        config_dir.join("rustwarden").join("config.toml")
-    } else {
-        PathBuf::from(".rustwarden_config.toml")
-    }
+    get_config_dir().join("config.toml")
 }
 
 /// Clears the terminal screen
@@ -124,9 +130,10 @@ pub fn run_setup_wizard() -> Result<Config> {
 
     // Database location
     println!("{}", style("database configuration").yellow().bold());
+    let default_db_path = get_config_dir().join("pwdb.enc");
     let db_path = prompt_with_default(
         "  path",
-        "pwdb.enc",
+        &default_db_path.to_string_lossy(),
         Some("where to store your encrypted password database"),
     )?;
 
@@ -154,9 +161,10 @@ pub fn run_setup_wizard() -> Result<Config> {
     )?;
 
     let backup_path = if auto_backup {
+        let default_backup_path = get_config_dir().join("backups");
         let path = prompt_with_default(
             "  backup directory",
-            "backups",
+            &default_backup_path.to_string_lossy(),
             Some("directory to store backup files"),
         )?;
         Some(PathBuf::from(path))
@@ -261,9 +269,11 @@ pub fn run_setup_wizard() -> Result<Config> {
     if prompt_yes_no("save configuration", true, None)? {
         save_config(&config)?;
 
-        // Create backup directory if needed
-        if let Some(ref backup_path) = config.backup_path {
-            fs::create_dir_all(backup_path).context("failed to create backup directory")?;
+        // Create backup directory only if backups are enabled
+        if config.auto_backup {
+            if let Some(ref backup_path) = config.backup_path {
+                fs::create_dir_all(backup_path).context("failed to create backup directory")?;
+            }
         }
 
         // Add to PATH if requested
@@ -272,11 +282,7 @@ pub fn run_setup_wizard() -> Result<Config> {
         }
 
         // Create initial empty database with master password
-        let db_path_full = if config.db_path.is_relative() {
-            std::env::current_dir()?.join(&config.db_path)
-        } else {
-            config.db_path.clone()
-        };
+        let db_path_full = config.db_path.clone();
 
         let empty_entries: Vec<crate::Entry> = vec![];
         crate::save_db(&db_path_full, &empty_entries, &master_password)?;
@@ -507,11 +513,7 @@ pub fn load_backup(backup_path: &PathBuf, master_password: &secrecy::SecretStrin
 
     // Get current config to find main database path
     let config = load_config()?;
-    let main_db_path = if config.db_path.is_relative() {
-        std::env::current_dir()?.join(&config.db_path)
-    } else {
-        config.db_path
-    };
+    let main_db_path = config.db_path;
 
     // Create backup of current database before restoring
     if main_db_path.exists() {
