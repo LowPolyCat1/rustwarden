@@ -1,18 +1,34 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use console::style;
+use crossterm::{
+    cursor,
+    execute,
+    terminal::{self, ClearType},
+};
 use rustwarden::*;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use zeroize::Zeroize;
 
 /// Command-line interface structure for the password manager
 #[derive(Parser)]
-#[command(author, version, about = "Simple local password manager (encrypted DB)")]
+#[command(author, version, about = "encrypted password manager")]
 struct Cli {
-    /// Path to database file
-    #[arg(short, long, default_value = DEFAULT_DB)]
-    db: PathBuf,
+    /// Path to database file (overrides config file setting)
+    #[arg(short, long)]
+    db: Option<PathBuf>,
+
+    /// Skip interactive setup and use defaults
+    #[arg(long)]
+    quick_setup: bool,
+
+    /// Force run setup wizard even if already configured
+    #[arg(long)]
+    setup: bool,
+
     #[command(subcommand)]
-    cmd: Commands,
+    cmd: Option<Commands>,
 }
 
 /// Available commands for the password manager
@@ -91,48 +107,129 @@ enum Commands {
 /// operations, command execution, etc.)
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let master = read_password("Master password: ")?;
-    let mut entries = load_db(&cli.db, &master)?;
 
-    match cli.cmd {
+    // Handle setup scenarios
+    if cli.setup || setup::is_first_run() {
+        if cli.quick_setup {
+            setup::quick_setup()?;
+        } else {
+            setup::run_setup_wizard()?;
+        }
+
+        // If this was just a setup run, exit
+        if cli.setup && cli.cmd.is_none() {
+            return Ok(());
+        }
+    }
+
+    // Load configuration
+    let config = setup::load_config()?;
+
+    // Determine database path (CLI arg overrides config)
+    let db_path = cli.db.unwrap_or(config.db_path);
+
+    // If no command provided, show help
+    let Some(cmd) = cli.cmd else {
+        println!("{}", style("rustwarden").cyan().bold());
+        println!("{}", style("encrypted password manager").dim());
+        println!();
+        println!("{}", style("usage:").yellow().bold());
+        println!("  {} {} {}",
+                 style("rustwarden").cyan(),
+                 style("<command>").green(),
+                 style("[args]").dim());
+        println!();
+        println!("{}", style("commands:").yellow().bold());
+        println!("  {} {}    {}",
+                 style("add").green(),
+                 style("<service> <username>").dim(),
+                 style("add password entry").white());
+        println!("  {} {}               {}",
+                 style("get").green(),
+                 style("<service>").dim(),
+                 style("retrieve password").white());
+        println!("  {} {}               {}",
+                 style("new").green(),
+                 style("<service>").dim(),
+                 style("generate new password").white());
+        println!("  {}                        {}",
+                 style("list").green(),
+                 style("list all services").white());
+        println!("  {} {}            {}",
+                 style("delete").green(),
+                 style("<service>").dim(),
+                 style("remove entry").white());
+        println!();
+        println!("{}", style("options:").yellow().bold());
+        println!("  {}                     {}",
+                 style("--setup").cyan(),
+                 style("run configuration wizard").white());
+        println!("  {}                      {}",
+                 style("--help").cyan(),
+                 style("show detailed help").white());
+        return Ok(());
+    };
+
+    print!("{}: ", style("master password").green());
+    io::stdout().flush().unwrap();
+    let master = read_password("")?;
+    let mut entries = load_db(&db_path, &master)?;
+
+    match cmd {
         Commands::Add { service, username } => {
-            let pass = rpassword::prompt_password("Entry password: ")
-                .context("failed to read entry password")?;
+            print!("{}: ", style("password").green());
+            io::stdout().flush().unwrap();
+            let pass = rpassword::prompt_password("")
+                .context("failed to read password")?;
             if entries.iter().any(|e| e.service == service) {
-                bail!("service already exists; delete first if you want to replace");
+                println!("{}", style(format!("error: service '{}' already exists", service)).red());
+                std::process::exit(1);
             }
             entries.push(Entry {
-                service,
+                service: service.clone(),
                 username,
                 password: pass,
             });
-            save_db(&cli.db, &entries, &master).context("failed to save DB")?;
-            println!("Added entry and saved DB.");
+            save_db(&db_path, &entries, &master).context("failed to save database")?;
+            println!("{} {}", style("✓ added:").green(), style(&service).cyan());
         }
         Commands::Get { service, clear } => {
             if let Some(e) = entries.iter().find(|e| e.service == service) {
-                let secs = clear.unwrap_or(DEFAULT_CLEAR_SECONDS);
+                let secs = clear.unwrap_or(config.default_clear_seconds);
                 copy_to_clipboard_with_clear(&e.password, secs)?;
-                println!(
-                    "Password for '{}' copied to clipboard; will clear in {}s",
-                    e.service, secs
-                );
+                println!("{} {} {}",
+                         style("✓ copied to clipboard").green(),
+                         style(format!("({}s", secs)).dim(),
+                         style("timeout)").dim());
             } else {
-                bail!("No such service");
+                println!("{}", style(format!("error: service '{}' not found", service)).red());
+                std::process::exit(1);
             }
         }
         Commands::Delete { service } => {
             let orig_len = entries.len();
             entries.retain(|e| e.service != service);
             if entries.len() == orig_len {
-                bail!("No such service");
+                println!("{}", style(format!("error: service '{}' not found", service)).red());
+                std::process::exit(1);
             }
-            save_db(&cli.db, &entries, &master)?;
-            println!("Deleted entry and saved DB.");
+            save_db(&db_path, &entries, &master)?;
+            println!("{} {}", style("✓ deleted:").red(), style(&service).cyan());
         }
         Commands::List => {
-            for e in &entries {
-                println!("{} ({})", e.service, e.username);
+            if entries.is_empty() {
+                println!("{}", style("no entries found").dim());
+            } else {
+                println!("{}", style("stored passwords:").yellow().bold());
+                for e in &entries {
+                    if e.username.is_empty() {
+                        println!("  {}", style(&e.service).cyan());
+                    } else {
+                        println!("  {} {}",
+                                 style(&e.service).cyan(),
+                                 style(format!("({})", e.username)).dim());
+                    }
+                }
             }
         }
         Commands::New {
@@ -149,10 +246,8 @@ fn main() -> Result<()> {
             clear,
         } => {
             if entries.iter().any(|e| e.service == name) {
-                bail!(
-                    "Service '{}' already exists; delete first if you want to replace",
-                    name
-                );
+                println!("{}", style(format!("error: service '{}' already exists", name)).red());
+                std::process::exit(1);
             }
             let pw = generate_password(
                 length,
@@ -170,12 +265,13 @@ fn main() -> Result<()> {
                 username: "".to_string(),
                 password: pw.clone(),
             });
-            save_db(&cli.db, &entries, &master)?;
+            save_db(&db_path, &entries, &master)?;
             copy_to_clipboard_with_clear(&pw, clear)?;
-            println!(
-                "Password for '{}' generated, stored in DB, and copied to clipboard (will clear in {}s)",
-                name, clear
-            );
+            println!("{} {} {} {}",
+                     style("✓ generated:").green(),
+                     style(&name).cyan(),
+                     style(format!("({}s", clear)).dim(),
+                     style("timeout)").dim());
         }
     }
 

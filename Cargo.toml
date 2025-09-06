@@ -15,6 +15,9 @@ secrecy = "0.8"
 rpassword = "7.0"
 zeroize = "1.5"
 arboard = "3.6.1"
+dirs = "5.0"
+crossterm = "0.27"
+console = "0.15"
 
 [dev-dependencies]
 criterion = { version = "0.7", features = ["html_reports"] }
