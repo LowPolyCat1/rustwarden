@@ -336,13 +336,7 @@ mod test;
 
 pub mod setup {
     use anyhow::{Context, Result};
-    use console::{style, Term};
-    use crossterm::{
-        cursor,
-        event::{self, Event, KeyCode, KeyEvent},
-        execute,
-        terminal::{self, ClearType},
-    };
+    use console::style;
     use std::fs;
     use std::io::{self, Write};
     use std::path::PathBuf;
@@ -383,7 +377,7 @@ pub mod setup {
 
     /// Clears the terminal screen
     fn clear_screen() -> Result<()> {
-        execute!(io::stdout(), terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+        clearscreen::clear().context("failed to clear screen")?;
         Ok(())
     }
 

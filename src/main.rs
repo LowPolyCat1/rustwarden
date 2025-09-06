@@ -1,11 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use console::style;
-use crossterm::{
-    cursor,
-    execute,
-    terminal::{self, ClearType},
-};
 use rustwarden::*;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -120,6 +115,9 @@ fn main() -> Result<()> {
         if cli.setup && cli.cmd.is_none() {
             return Ok(());
         }
+
+        // Clear screen after setup before continuing
+        clearscreen::clear().ok();
     }
 
     // Load configuration
@@ -130,6 +128,7 @@ fn main() -> Result<()> {
 
     // If no command provided, show help
     let Some(cmd) = cli.cmd else {
+        clearscreen::clear().ok();
         println!("{}", style("rustwarden").cyan().bold());
         println!("{}", style("encrypted password manager").dim());
         println!();
@@ -170,6 +169,7 @@ fn main() -> Result<()> {
         return Ok(());
     };
 
+    clearscreen::clear().ok();
     print!("{}: ", style("master password").green());
     io::stdout().flush().unwrap();
     let master = read_password("")?;
