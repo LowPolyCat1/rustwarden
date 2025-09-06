@@ -86,6 +86,11 @@ enum Commands {
         #[arg(short, long, default_value_t = DEFAULT_CLEAR_SECONDS)]
         clear: u64,
     },
+    /// Load a backup file and restore it
+    LoadBackup {
+        /// Path to the backup file to restore
+        backup_path: PathBuf,
+    },
 }
 
 /// Main entry point for the password manager application
@@ -158,6 +163,10 @@ fn main() -> Result<()> {
                  style("delete").green(),
                  style("<service>").dim(),
                  style("remove entry").white());
+        println!("  {} {}        {}",
+                 style("load-backup").green(),
+                 style("<file>").dim(),
+                 style("restore from backup").white());
         println!();
         println!("{}", style("options:").yellow().bold());
         println!("  {}                     {}",
@@ -272,6 +281,10 @@ fn main() -> Result<()> {
                      style(&name).cyan(),
                      style(format!("({}s", clear)).dim(),
                      style("timeout)").dim());
+        }
+        Commands::LoadBackup { backup_path } => {
+            setup::load_backup(&backup_path, &master)?;
+            return Ok(()); // Exit after backup restore
         }
     }
 
