@@ -8,10 +8,18 @@ anyhow = "1.0"
 clap = { version = "4.2", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rand = {version = "0.8"}
+rand = { version = "0.8" }
 argon2 = "0.4"
 chacha20poly1305 = "0.10"
 secrecy = "0.8"
 rpassword = "7.0"
 zeroize = "1.5"
 arboard = "3.6.1"
+
+[dev-dependencies]
+criterion = { version = "0.7", features = ["html_reports"] }
+tempfile = "3.8"
+
+[[bench]]
+name = "bench"
+harness = false
