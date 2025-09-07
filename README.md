@@ -268,10 +268,6 @@ Run benchmarks: `cargo bench`
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Security Disclosure
-
-If you discover a security vulnerability, please email [security@example.com] instead of using the issue tracker.
-
 ## Acknowledgments
 
 - Built with [Rust](https://www.rust-lang.org/)
