@@ -4,14 +4,14 @@
 //! and Argon2 key derivation. It supports adding, retrieving, deleting, and listing
 //! password entries, as well as generating secure passwords.
 
-use anyhow::{anyhow, bail, Context, Result};
-use argon2::{Argon2, Params, Version};
+use anyhow::{Context, Result, anyhow, bail};
 use arboard::Clipboard;
+use argon2::{Argon2, Params, Version};
 use chacha20poly1305::{
-    aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
+    aead::{Aead, KeyInit},
 };
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use secrecy::{ExposeSecret, SecretString, SecretVec};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -154,9 +154,12 @@ pub fn decrypt_blob(filedata: &[u8], password: &SecretString) -> Result<Vec<u8>>
     let key = Key::from_slice(key_secret.expose_secret());
     let cipher = ChaCha20Poly1305::new(key);
     let nonce = Nonce::from_slice(nonce_bytes);
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext.as_ref())
-        .map_err(|e| anyhow!("decryption failed (bad password or corrupted file): {:?}", e))?;
+    let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|e| {
+        anyhow!(
+            "decryption failed (bad password or corrupted file): {:?}",
+            e
+        )
+    })?;
     drop(key_secret);
     Ok(plaintext)
 }
@@ -185,7 +188,8 @@ pub fn load_db(db_path: &PathBuf, master: &SecretString) -> Result<Vec<Entry>> {
     }
     let mut f = File::open(db_path).with_context(|| format!("opening {:?}", db_path))?;
     let mut buf = Vec::new();
-    f.read_to_end(&mut buf).with_context(|| format!("reading {:?}", db_path))?;
+    f.read_to_end(&mut buf)
+        .with_context(|| format!("reading {:?}", db_path))?;
     let plain = decrypt_blob(&buf, master)?;
     let entries: Vec<Entry> = serde_json::from_slice(&plain).context("failed to parse DB JSON")?;
     let mut plain_owned = plain;
@@ -221,8 +225,10 @@ pub fn save_db(db_path: &PathBuf, entries: &[Entry], master: &SecretString) -> R
     let tmp = db_path.with_extension("enc.tmp");
     {
         let mut f = File::create(&tmp).with_context(|| format!("creating {:?}", &tmp))?;
-        f.write_all(&encrypted).with_context(|| format!("writing {:?}", &tmp))?;
-        f.sync_all().with_context(|| format!("syncing {:?}", &tmp))?;
+        f.write_all(&encrypted)
+            .with_context(|| format!("writing {:?}", &tmp))?;
+        f.sync_all()
+            .with_context(|| format!("syncing {:?}", &tmp))?;
     }
     std::fs::rename(&tmp, db_path).with_context(|| format!("atomic rename to {:?}", db_path))?;
     Ok(())
@@ -308,12 +314,22 @@ pub fn generate_password(
     const SYMBOLS: &[u8] = b"!@#$%^&*()-_=+[]{};:,.<>?/";
 
     let mut categories: Vec<(&[u8], bool)> = Vec::new();
-    if lowercase { categories.push((LOWER, req_lower)); }
-    if uppercase { categories.push((UPPER, req_upper)); }
-    if digits { categories.push((DIGITS, req_digits)); }
-    if symbols { categories.push((SYMBOLS, req_symbols)); }
+    if lowercase {
+        categories.push((LOWER, req_lower));
+    }
+    if uppercase {
+        categories.push((UPPER, req_upper));
+    }
+    if digits {
+        categories.push((DIGITS, req_digits));
+    }
+    if symbols {
+        categories.push((SYMBOLS, req_symbols));
+    }
 
-    if categories.is_empty() { bail!("No character sets enabled"); }
+    if categories.is_empty() {
+        bail!("No character sets enabled");
+    }
     if length < categories.iter().filter(|(_, req)| *req).count() {
         bail!("Password length too short to satisfy requirements");
     }
@@ -322,11 +338,19 @@ pub fn generate_password(
     let mut password: Vec<u8> = Vec::new();
 
     for (set, required) in &categories {
-        if *required { password.push(*set.choose(&mut rng).unwrap()); }
+        if *required {
+            password.push(*set.choose(&mut rng).unwrap());
+        }
     }
 
-    let all: Vec<u8> = categories.iter().flat_map(|(set, _)| *set).cloned().collect();
-    while password.len() < length { password.push(*all.choose(&mut rng).unwrap()); }
+    let all: Vec<u8> = categories
+        .iter()
+        .flat_map(|(set, _)| *set)
+        .cloned()
+        .collect();
+    while password.len() < length {
+        password.push(*all.choose(&mut rng).unwrap());
+    }
     password.shuffle(&mut rng);
     Ok(String::from_utf8(password).unwrap())
 }

@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use console::style;
 use rustwarden::*;
@@ -138,43 +138,61 @@ fn main() -> Result<()> {
         println!("{}", style("encrypted password manager").dim());
         println!();
         println!("{}", style("usage:").yellow().bold());
-        println!("  {} {} {}",
-                 style("rustwarden").cyan(),
-                 style("<command>").green(),
-                 style("[args]").dim());
+        println!(
+            "  {} {} {}",
+            style("rustwarden").cyan(),
+            style("<command>").green(),
+            style("[args]").dim()
+        );
         println!();
         println!("{}", style("commands:").yellow().bold());
-        println!("  {} {}    {}",
-                 style("add").green(),
-                 style("<service> <username>").dim(),
-                 style("add password entry").white());
-        println!("  {} {}               {}",
-                 style("get").green(),
-                 style("<service>").dim(),
-                 style("retrieve password").white());
-        println!("  {} {}               {}",
-                 style("new").green(),
-                 style("<service>").dim(),
-                 style("generate new password").white());
-        println!("  {}                        {}",
-                 style("list").green(),
-                 style("list all services").white());
-        println!("  {} {}            {}",
-                 style("delete").green(),
-                 style("<service>").dim(),
-                 style("remove entry").white());
-        println!("  {} {}        {}",
-                 style("load-backup").green(),
-                 style("<file>").dim(),
-                 style("restore from backup").white());
+        println!(
+            "  {} {}    {}",
+            style("add").green(),
+            style("<service> <username>").dim(),
+            style("add password entry").white()
+        );
+        println!(
+            "  {} {}               {}",
+            style("get").green(),
+            style("<service>").dim(),
+            style("retrieve password").white()
+        );
+        println!(
+            "  {} {}               {}",
+            style("new").green(),
+            style("<service>").dim(),
+            style("generate new password").white()
+        );
+        println!(
+            "  {}                        {}",
+            style("list").green(),
+            style("list all services").white()
+        );
+        println!(
+            "  {} {}            {}",
+            style("delete").green(),
+            style("<service>").dim(),
+            style("remove entry").white()
+        );
+        println!(
+            "  {} {}        {}",
+            style("load-backup").green(),
+            style("<file>").dim(),
+            style("restore from backup").white()
+        );
         println!();
         println!("{}", style("options:").yellow().bold());
-        println!("  {}                     {}",
-                 style("--setup").cyan(),
-                 style("run configuration wizard").white());
-        println!("  {}                      {}",
-                 style("--help").cyan(),
-                 style("show detailed help").white());
+        println!(
+            "  {}                     {}",
+            style("--setup").cyan(),
+            style("run configuration wizard").white()
+        );
+        println!(
+            "  {}                      {}",
+            style("--help").cyan(),
+            style("show detailed help").white()
+        );
         return Ok(());
     };
 
@@ -188,10 +206,12 @@ fn main() -> Result<()> {
         Commands::Add { service, username } => {
             print!("{}: ", style("password").green());
             io::stdout().flush().unwrap();
-            let pass = rpassword::prompt_password("")
-                .context("failed to read password")?;
+            let pass = rpassword::prompt_password("").context("failed to read password")?;
             if entries.iter().any(|e| e.service == service) {
-                println!("{}", style(format!("error: service '{}' already exists", service)).red());
+                println!(
+                    "{}",
+                    style(format!("error: service '{}' already exists", service)).red()
+                );
                 std::process::exit(1);
             }
             entries.push(Entry {
@@ -206,12 +226,17 @@ fn main() -> Result<()> {
             if let Some(e) = entries.iter().find(|e| e.service == service) {
                 let secs = clear.unwrap_or(config.default_clear_seconds);
                 copy_to_clipboard_with_clear(&e.password, secs)?;
-                println!("{} {} {}",
-                         style("✓ copied to clipboard").green(),
-                         style(format!("({}s", secs)).dim(),
-                         style("timeout)").dim());
+                println!(
+                    "{} {} {}",
+                    style("✓ copied to clipboard").green(),
+                    style(format!("({}s", secs)).dim(),
+                    style("timeout)").dim()
+                );
             } else {
-                println!("{}", style(format!("error: service '{}' not found", service)).red());
+                println!(
+                    "{}",
+                    style(format!("error: service '{}' not found", service)).red()
+                );
                 std::process::exit(1);
             }
         }
@@ -219,7 +244,10 @@ fn main() -> Result<()> {
             let orig_len = entries.len();
             entries.retain(|e| e.service != service);
             if entries.len() == orig_len {
-                println!("{}", style(format!("error: service '{}' not found", service)).red());
+                println!(
+                    "{}",
+                    style(format!("error: service '{}' not found", service)).red()
+                );
                 std::process::exit(1);
             }
             save_db(&db_path, &entries, &master)?;
@@ -234,9 +262,11 @@ fn main() -> Result<()> {
                     if e.username.is_empty() {
                         println!("  {}", style(&e.service).cyan());
                     } else {
-                        println!("  {} {}",
-                                 style(&e.service).cyan(),
-                                 style(format!("({})", e.username)).dim());
+                        println!(
+                            "  {} {}",
+                            style(&e.service).cyan(),
+                            style(format!("({})", e.username)).dim()
+                        );
                     }
                 }
             }
@@ -255,7 +285,10 @@ fn main() -> Result<()> {
             clear,
         } => {
             if entries.iter().any(|e| e.service == name) {
-                println!("{}", style(format!("error: service '{}' already exists", name)).red());
+                println!(
+                    "{}",
+                    style(format!("error: service '{}' already exists", name)).red()
+                );
                 std::process::exit(1);
             }
             let pw = generate_password(
@@ -276,11 +309,13 @@ fn main() -> Result<()> {
             });
             save_db(&db_path, &entries, &master)?;
             copy_to_clipboard_with_clear(&pw, clear)?;
-            println!("{} {} {} {}",
-                     style("✓ generated:").green(),
-                     style(&name).cyan(),
-                     style(format!("({}s", clear)).dim(),
-                     style("timeout)").dim());
+            println!(
+                "{} {} {} {}",
+                style("✓ generated:").green(),
+                style(&name).cyan(),
+                style(format!("({}s", clear)).dim(),
+                style("timeout)").dim()
+            );
         }
         Commands::LoadBackup { backup_path } => {
             setup::load_backup(&backup_path, &master)?;

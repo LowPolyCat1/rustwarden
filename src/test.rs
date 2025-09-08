@@ -83,18 +83,24 @@ mod tests {
 
     #[test]
     fn test_password_generation_basic() {
-        let password = generate_password(12, true, true, true, true, true, true, true, true).unwrap();
+        let password =
+            generate_password(12, true, true, true, true, true, true, true, true).unwrap();
 
         assert_eq!(password.len(), 12);
         assert!(password.chars().any(|c| c.is_ascii_lowercase()));
         assert!(password.chars().any(|c| c.is_ascii_uppercase()));
         assert!(password.chars().any(|c| c.is_ascii_digit()));
-        assert!(password.chars().any(|c| "!@#$%^&*()-_=+[]{};:,.<>?/".contains(c)));
+        assert!(
+            password
+                .chars()
+                .any(|c| "!@#$%^&*()-_=+[]{};:,.<>?/".contains(c))
+        );
     }
 
     #[test]
     fn test_password_generation_no_requirements() {
-        let password = generate_password(8, true, true, true, true, false, false, false, false).unwrap();
+        let password =
+            generate_password(8, true, true, true, true, false, false, false, false).unwrap();
         assert_eq!(password.len(), 8);
     }
 
@@ -112,7 +118,8 @@ mod tests {
 
     #[test]
     fn test_password_generation_only_lowercase() {
-        let password = generate_password(10, true, false, false, false, true, false, false, false).unwrap();
+        let password =
+            generate_password(10, true, false, false, false, true, false, false, false).unwrap();
 
         assert_eq!(password.len(), 10);
         assert!(password.chars().all(|c| c.is_ascii_lowercase()));
