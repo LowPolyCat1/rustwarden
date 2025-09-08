@@ -34,7 +34,7 @@ enum Commands {
         /// Name of the service
         service: String,
         /// Username for the service
-        username: String,
+        username: Option<String>,
     },
     /// Retrieve a password and copy it to clipboard
     Get {
@@ -196,7 +196,7 @@ fn main() -> Result<()> {
             }
             entries.push(Entry {
                 service: service.clone(),
-                username,
+                username: username.unwrap_or("".to_string()),
                 password: pass,
             });
             save_db(&db_path, &entries, &master).context("failed to save database")?;
