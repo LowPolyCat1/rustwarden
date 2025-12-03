@@ -35,7 +35,11 @@ fn perform_auto_sync(config: &mut setup::Config, db_path: &PathBuf) -> Result<()
                 } else {
                     let sync = github_sync::GitHubSync::new(gh.token.clone(), gh.gist_id.clone());
                     match sync.push_db(&db_bytes, "pwdb.enc") {
-                        Ok(_) => println!("{}", style("  ✓ synced").green()),
+                        Ok(updated_at) => {
+                            gh.last_sync = updated_at;
+                            setup::save_config(&config)?;
+                            println!("{}", style("  ✓ synced").green());
+                        }
                         Err(e) => println!("{} {}", style("  ⚠ sync failed:").yellow(), e),
                     }
                 }
@@ -141,6 +145,9 @@ enum Commands {
         /// Check sync status
         #[arg(long)]
         status: bool,
+        /// Force pull even if remote isn't newer
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -264,7 +271,7 @@ fn main() -> Result<()> {
     let mut config = config; // Make config mutable for auto-sync
 
     match cmd {
-        Commands::Sync { push, pull, status } => {
+        Commands::Sync { push, pull, status, force } => {
             // Sync command doesn't need master password to be read yet for status
             if status {
                 if let Some(ref gh) = config.github_config {
@@ -335,13 +342,18 @@ fn main() -> Result<()> {
                         github_sync::GitHubSync::new(gh.token.clone(), gist_id.clone());
 
                     match sync_final.push_db(&db_bytes, "pwdb.enc") {
-                        Ok(_) => {
+                        Ok(updated_at) => {
                             println!("{} database pushed successfully", style("✓").green());
                             println!("  {} {}", style("gist:").dim(), gist_id);
 
-                            // Save updated config if we created a new gist
+                            // Update last_sync timestamp
+                            if let Some(ref mut gh_config) = config_updated.github_config {
+                                gh_config.last_sync = updated_at;
+                            }
+
+                            // Save updated config (either with new gist ID or updated timestamp)
+                            setup::save_config(&config_updated)?;
                             if gh.gist_id == "new" {
-                                setup::save_config(&config_updated)?;
                                 println!("{} config updated with gist ID", style("✓").green());
                             }
                         }
@@ -361,8 +373,8 @@ fn main() -> Result<()> {
 
                     println!("{}", style("pulling database from GitHub...").cyan());
 
-                    match sync.pull_db("pwdb.enc") {
-                        Ok(encrypted_data) => {
+                    match sync.pull_db("pwdb.enc", force, &gh.last_sync) {
+                        Ok((encrypted_data, updated_at)) => {
                             // Backup current database before pulling
                             if db_path.exists() {
                                 let backup_name = format!(
@@ -382,6 +394,12 @@ fn main() -> Result<()> {
                             // Write pulled data
                             std::fs::write(&db_path, encrypted_data)
                                 .context("failed to write synced database")?;
+
+                            // Update last_sync timestamp
+                            if let Some(ref mut gh_config) = config.github_config {
+                                gh_config.last_sync = updated_at;
+                                setup::save_config(&config)?;
+                            }
 
                             println!("{} database pulled successfully", style("✓").green());
                             println!(

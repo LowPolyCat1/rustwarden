@@ -458,6 +458,9 @@ enabled = {}
         toml_content.push_str(&format!("token = \"{}\"\n", gh.token));
         toml_content.push_str(&format!("gist_id = \"{}\"\n", gh.gist_id));
         toml_content.push_str(&format!("auto_sync = {}\n", gh.auto_sync));
+        if let Some(ref last_sync) = gh.last_sync {
+            toml_content.push_str(&format!("last_sync = \"{}\"\n", last_sync));
+        }
     }
 
     fs::write(&config_path, toml_content).context("Failed to write configuration file")?;

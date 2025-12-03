@@ -39,6 +39,8 @@ struct GistResponse {
     id: String,
     url: String,
     files: HashMap<String, GistFile>,
+    #[serde(default)]
+    updated_at: Option<String>,
 }
 
 /// Individual file in a gist
@@ -78,8 +80,8 @@ impl GitHubSync {
     /// * `filename` - Name of the file in the gist (e.g., "pwdb.enc")
     ///
     /// # Returns
-    /// * `Result<()>` - Success or error
-    pub fn push_db(&self, encrypted_data: &[u8], filename: &str) -> Result<()> {
+    /// * `Result<Option<String>>` - Success with updated_at timestamp or error
+    pub fn push_db(&self, encrypted_data: &[u8], filename: &str) -> Result<Option<String>> {
         // Encode encrypted data as base64 for safe JSON transmission
         use base64::Engine;
         let engine = base64::engine::general_purpose::STANDARD;
@@ -151,17 +153,28 @@ impl GitHubSync {
             bail!("GitHub API error ({}): {}", status, body);
         }
 
-        Ok(())
+        // Parse response to get updated_at timestamp
+        let updated_gist: GistResponse =
+            response.json().context("failed to parse gist response")?;
+
+        Ok(updated_gist.updated_at)
     }
 
     /// Pulls encrypted database from GitHub Gist
     ///
     /// # Arguments
     /// * `filename` - Name of the file in the gist (e.g., "pwdb.enc")
+    /// * `force` - If true, download regardless of version. If false, only download if remote is newer.
+    /// * `last_sync` - Last sync timestamp to compare against (if not forcing)
     ///
     /// # Returns
-    /// * `Result<Vec<u8>>` - The decrypted database content
-    pub fn pull_db(&self, filename: &str) -> Result<Vec<u8>> {
+    /// * `Result<(Vec<u8>, Option<String>)>` - The decrypted database content and updated_at timestamp
+    pub fn pull_db(
+        &self,
+        filename: &str,
+        force: bool,
+        last_sync: &Option<String>,
+    ) -> Result<(Vec<u8>, Option<String>)> {
         let client = reqwest::blocking::Client::new();
 
         let response = client
@@ -182,6 +195,19 @@ impl GitHubSync {
 
         let gist: GistResponse = response.json().context("failed to parse gist response")?;
 
+        // Check if remote is newer (unless forcing)
+        if !force {
+            if let Some(local_time) = last_sync {
+                // We have a previous sync time - check if remote is newer
+                if let Some(ref remote_time) = gist.updated_at {
+                    if remote_time <= local_time {
+                        bail!("remote version not newer than local (use --force to override)");
+                    }
+                }
+            }
+            // If last_sync is None, this is first pull - always allow it
+        }
+
         // Find the database file
         let file = gist
             .files
@@ -195,7 +221,7 @@ impl GitHubSync {
             .decode(&file.content)
             .context("failed to decode base64 from gist")?;
 
-        Ok(decoded)
+        Ok((decoded, gist.updated_at))
     }
 
     /// Creates a new private gist with the encrypted database
