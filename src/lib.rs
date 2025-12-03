@@ -359,3 +359,4 @@ pub fn generate_password(
 mod test;
 
 pub mod setup;
+pub mod github_sync;

@@ -20,6 +20,10 @@ crossterm = "0.27"
 console = "0.15"
 clearscreen = "2.0"
 chrono = { version = "0.4", features = ["serde"] }
+base64 = "*"
+reqwest = { version = "*", features = ["json", "blocking", "rustls-tls"] }
+tokio = { version = "1.35", features = ["full"] }
+toml = "0.8"
 
 [dev-dependencies]
 criterion = { version = "0.7", features = ["html_reports"] }

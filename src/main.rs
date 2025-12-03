@@ -1,10 +1,49 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use console::style;
 use rustwarden::*;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use zeroize::Zeroize;
+
+/// Helper function to perform auto-sync after database changes
+fn perform_auto_sync(config: &mut setup::Config, db_path: &PathBuf) -> Result<()> {
+    if let Some(ref mut gh) = config.github_config {
+        if gh.auto_sync {
+            println!("{}", style("  syncing to GitHub...").dim());
+
+            if let Ok(db_bytes) = std::fs::read(&db_path) {
+                // Create gist if it doesn't exist yet
+                if gh.gist_id == "new" {
+                    let sync = github_sync::GitHubSync::new(gh.token.clone(), "new".to_string());
+                    match sync.create_gist(&db_bytes, "pwdb.enc") {
+                        Ok(gist_id) => {
+                            gh.gist_id = gist_id.clone();
+                            println!("{} created gist: {}", style("✓").green(), gist_id);
+                            // Save config with new gist ID
+                            setup::save_config(&config)?;
+                        }
+                        Err(e) => {
+                            println!(
+                                "{} {}",
+                                style("  ⚠ sync failed to create gist:").yellow(),
+                                e
+                            );
+                            return Ok(()); // Don't fail, just skip sync
+                        }
+                    }
+                } else {
+                    let sync = github_sync::GitHubSync::new(gh.token.clone(), gh.gist_id.clone());
+                    match sync.push_db(&db_bytes, "pwdb.enc") {
+                        Ok(_) => println!("{}", style("  ✓ synced").green()),
+                        Err(e) => println!("{} {}", style("  ⚠ sync failed:").yellow(), e),
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 /// Command-line interface structure for the password manager
 #[derive(Parser)]
@@ -91,6 +130,18 @@ enum Commands {
         /// Path to the backup file to restore
         backup_path: PathBuf,
     },
+    /// Sync database with GitHub Gist
+    Sync {
+        /// Push database to GitHub
+        #[arg(long)]
+        push: bool,
+        /// Pull database from GitHub
+        #[arg(long)]
+        pull: bool,
+        /// Check sync status
+        #[arg(long)]
+        status: bool,
+    },
 }
 
 /// Main entry point for the password manager application
@@ -129,7 +180,11 @@ fn main() -> Result<()> {
     let config = setup::load_config()?;
 
     // Determine database path (CLI arg overrides config)
-    let db_path = cli.db.unwrap_or(config.db_path);
+    let db_path = cli
+        .db
+        .as_ref()
+        .map(|p| p.clone())
+        .unwrap_or_else(|| config.db_path.clone());
 
     // If no command provided, show help
     let Some(cmd) = cli.cmd else {
@@ -181,6 +236,11 @@ fn main() -> Result<()> {
             style("<file>").dim(),
             style("restore from backup").white()
         );
+        println!(
+            "  {}                     {}",
+            style("sync").green(),
+            style("manage GitHub sync").white()
+        );
         println!();
         println!("{}", style("options:").yellow().bold());
         println!(
@@ -201,8 +261,147 @@ fn main() -> Result<()> {
     io::stdout().flush().unwrap();
     let master = read_password("")?;
     let mut entries = load_db(&db_path, &master)?;
+    let mut config = config; // Make config mutable for auto-sync
 
     match cmd {
+        Commands::Sync { push, pull, status } => {
+            // Sync command doesn't need master password to be read yet for status
+            if status {
+                if let Some(ref gh) = config.github_config {
+                    let sync = github_sync::GitHubSync::new(gh.token.clone(), gh.gist_id.clone());
+                    match sync.check_gist_status() {
+                        Ok((exists, size)) => {
+                            if exists {
+                                println!("{} Gist is accessible", style("✓").green());
+                                println!("  {} {} bytes", style("size:").dim(), size);
+                                if let Some(timestamp) = &gh.last_sync {
+                                    println!("  {} {}", style("last sync:").dim(), timestamp);
+                                }
+                            } else {
+                                println!("{} Gist not found or not accessible", style("✗").red());
+                            }
+                        }
+                        Err(e) => {
+                            println!("{} Error checking gist: {}", style("✗").red(), e);
+                        }
+                    }
+                } else {
+                    println!("{}", style("error: GitHub sync not configured").red());
+                    println!("  run 'rustwarden --setup' to enable it");
+                }
+                return Ok(());
+            }
+
+            // Push and pull need master password
+            if !push && !pull {
+                println!("{}", style("error: specify --push or --pull").red());
+                return Err(anyhow::anyhow!("no sync action specified"));
+            }
+
+            if let Some(ref gh) = config.github_config {
+                let sync = github_sync::GitHubSync::new(gh.token.clone(), gh.gist_id.clone());
+
+                if push {
+                    // Read encrypted database to push
+                    let db_bytes =
+                        std::fs::read(&db_path).context("failed to read database file")?;
+
+                    println!("{}", style("pushing database to GitHub...").cyan());
+
+                    // Handle new gist creation
+                    let mut config_updated = config.clone();
+
+                    let gist_id = if gh.gist_id == "new" {
+                        match sync.create_gist(&db_bytes, "pwdb.enc") {
+                            Ok(id) => {
+                                println!("{} created new gist: {}", style("✓").green(), id);
+                                // Update config with new gist ID
+                                if let Some(ref mut gh_config) = config_updated.github_config {
+                                    gh_config.gist_id = id.clone();
+                                }
+                                id
+                            }
+                            Err(e) => {
+                                println!("{} failed to create gist: {}", style("✗").red(), e);
+                                return Err(e);
+                            }
+                        }
+                    } else {
+                        gh.gist_id.clone()
+                    };
+
+                    // Create sync handler with actual gist ID
+                    let sync_final =
+                        github_sync::GitHubSync::new(gh.token.clone(), gist_id.clone());
+
+                    match sync_final.push_db(&db_bytes, "pwdb.enc") {
+                        Ok(_) => {
+                            println!("{} database pushed successfully", style("✓").green());
+                            println!("  {} {}", style("gist:").dim(), gist_id);
+
+                            // Save updated config if we created a new gist
+                            if gh.gist_id == "new" {
+                                setup::save_config(&config_updated)?;
+                                println!("{} config updated with gist ID", style("✓").green());
+                            }
+                        }
+                        Err(e) => {
+                            println!("{} failed to push database: {}", style("✗").red(), e);
+                            return Err(e);
+                        }
+                    }
+                }
+
+                if pull {
+                    if gh.gist_id == "new" {
+                        println!("{}", style("error: no gist configured yet").red());
+                        println!("  run 'rustwarden sync --push' to create one");
+                        return Err(anyhow::anyhow!("no gist configured"));
+                    }
+
+                    println!("{}", style("pulling database from GitHub...").cyan());
+
+                    match sync.pull_db("pwdb.enc") {
+                        Ok(encrypted_data) => {
+                            // Backup current database before pulling
+                            if db_path.exists() {
+                                let backup_name = format!(
+                                    "backup_before_sync_{}.enc",
+                                    chrono::Utc::now().format("%Y%m%d_%H%M%S")
+                                );
+                                let safety_backup = db_path.with_file_name(backup_name);
+                                std::fs::copy(&db_path, &safety_backup)
+                                    .context("failed to create safety backup")?;
+                                println!(
+                                    "  {} {}",
+                                    style("safety backup:").dim(),
+                                    safety_backup.display()
+                                );
+                            }
+
+                            // Write pulled data
+                            std::fs::write(&db_path, encrypted_data)
+                                .context("failed to write synced database")?;
+
+                            println!("{} database pulled successfully", style("✓").green());
+                            println!(
+                                "  {} entries updated",
+                                style("reload entries with 'get' or 'list'").dim()
+                            );
+                        }
+                        Err(e) => {
+                            println!("{} failed to pull database: {}", style("✗").red(), e);
+                            return Err(e);
+                        }
+                    }
+                }
+            } else {
+                println!("{}", style("error: GitHub sync not configured").red());
+                println!("  run 'rustwarden --setup' to enable it");
+                return Err(anyhow::anyhow!("GitHub sync not configured"));
+            }
+            return Ok(());
+        }
         Commands::Add { service, username } => {
             print!("{}: ", style("password").green());
             io::stdout().flush().unwrap();
@@ -221,6 +420,9 @@ fn main() -> Result<()> {
             });
             save_db(&db_path, &entries, &master).context("failed to save database")?;
             println!("{} {}", style("✓ added:").green(), style(&service).cyan());
+
+            // Auto-sync if enabled
+            let _ = perform_auto_sync(&mut config, &db_path);
         }
         Commands::Get { service, clear } => {
             if let Some(e) = entries.iter().find(|e| e.service == service) {
@@ -252,6 +454,9 @@ fn main() -> Result<()> {
             }
             save_db(&db_path, &entries, &master)?;
             println!("{} {}", style("✓ deleted:").red(), style(&service).cyan());
+
+            // Auto-sync if enabled
+            let _ = perform_auto_sync(&mut config, &db_path);
         }
         Commands::List => {
             if entries.is_empty() {
@@ -316,6 +521,9 @@ fn main() -> Result<()> {
                 style(format!("({}s", clear)).dim(),
                 style("timeout)").dim()
             );
+
+            // Auto-sync if enabled
+            let _ = perform_auto_sync(&mut config, &db_path);
         }
         Commands::LoadBackup { backup_path } => {
             setup::load_backup(&backup_path, &master)?;

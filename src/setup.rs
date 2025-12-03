@@ -12,6 +12,7 @@ pub struct Config {
     pub default_clear_seconds: u64,
     pub auto_backup: bool,
     pub backup_path: Option<PathBuf>,
+    pub github_config: Option<crate::github_sync::GitHubConfig>,
 }
 
 impl Default for Config {
@@ -22,6 +23,7 @@ impl Default for Config {
             default_clear_seconds: 15,
             auto_backup: false,
             backup_path: None,
+            github_config: None,
         }
     }
 }
@@ -174,6 +176,89 @@ pub fn run_setup_wizard() -> Result<Config> {
 
     println!();
 
+    // GitHub sync configuration
+    println!("{}", style("cloud storage configuration").yellow().bold());
+    let enable_github = prompt_yes_no(
+        "  enable GitHub cloud sync",
+        false,
+        Some("backup encrypted database to a private GitHub Gist"),
+    )?;
+
+    let github_config = if enable_github {
+        let token = loop {
+            print!("  {}: ", style("GitHub personal access token").green());
+            io::stdout().flush()?;
+            let t = rpassword::prompt_password("").context("failed to read token")?;
+            if t.is_empty() {
+                println!("  {}", style("error: token cannot be empty").red());
+                continue;
+            }
+            break t;
+        };
+
+        // Validate token
+        let _ = loop {
+            let sync = crate::github_sync::GitHubSync::new(token.clone(), "temp".to_string());
+            match sync.validate_token() {
+                Ok(username) => {
+                    println!(
+                        "  {} authenticated as: {}",
+                        style("✓").green(),
+                        style(username).cyan()
+                    );
+                    break;
+                }
+                Err(e) => {
+                    println!("  {} failed to validate token: {}", style("✗").red(), e);
+                    if prompt_yes_no("  continue without validation", false, None)? {
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        };
+
+        let create_new = prompt_yes_no(
+            "  create new gist",
+            true,
+            Some("or provide an existing gist ID"),
+        )?;
+
+        let gist_id = loop {
+            if create_new {
+                println!("  {}", style("gist will be created on first sync").dim());
+                break "new".to_string();
+            } else {
+                let id = prompt_with_default(
+                    "  gist ID",
+                    "",
+                    Some("found in gist URL: https://gist.github.com/username/GIST_ID"),
+                )?;
+                if id.is_empty() {
+                    println!("  {}", style("gist ID cannot be empty").red());
+                    continue;
+                }
+                break id;
+            }
+        };
+
+        let auto_sync = prompt_yes_no(
+            "  enable auto-sync",
+            false,
+            Some("automatically push database after each change"),
+        )?;
+
+        let mut gh_config = crate::github_sync::GitHubConfig::new(token, gist_id);
+        gh_config.auto_sync = auto_sync;
+
+        Some(gh_config)
+    } else {
+        None
+    };
+
+    println!();
+
     // PATH shortcut configuration
     println!("{}", style("system integration").yellow().bold());
     let add_to_path = prompt_yes_no(
@@ -226,6 +311,7 @@ pub fn run_setup_wizard() -> Result<Config> {
         default_clear_seconds: clear_seconds,
         auto_backup,
         backup_path,
+        github_config,
     };
 
     println!("{}", style("configuration summary").yellow().bold());
@@ -253,6 +339,26 @@ pub fn run_setup_wizard() -> Result<Config> {
             "  {}: {}",
             style("backup path").cyan(),
             backup_path.display()
+        );
+    }
+    println!(
+        "  {}: {}",
+        style("GitHub sync").cyan(),
+        if config.github_config.is_some() {
+            style("enabled").green()
+        } else {
+            style("disabled").red()
+        }
+    );
+    if let Some(ref gh) = config.github_config {
+        println!(
+            "  {}: {}",
+            style("  auto-sync").cyan(),
+            if gh.auto_sync {
+                style("on").green()
+            } else {
+                style("off").red()
+            }
         );
     }
     println!(
@@ -319,7 +425,10 @@ pub fn save_config(config: &Config) -> Result<()> {
         fs::create_dir_all(parent).context("Failed to create config directory")?;
     }
 
-    let toml_content = format!(
+    // Convert paths to forward slashes for TOML compatibility
+    let db_path_str = config.db_path.to_string_lossy().replace('\\', "/");
+
+    let mut toml_content = format!(
         r#"# RustWarden Configuration File
 # This file was automatically generated during setup
 
@@ -332,15 +441,24 @@ default_clear_seconds = {}
 [backup]
 enabled = {}
 {}"#,
-        config.db_path.display(),
+        db_path_str,
         config.default_clear_seconds,
         config.auto_backup,
         if let Some(ref path) = config.backup_path {
-            format!("path = \"{}\"", path.display())
+            let backup_path_str = path.to_string_lossy().replace('\\', "/");
+            format!("path = \"{}\"", backup_path_str)
         } else {
             "# path = \"backups\"".to_string()
         }
     );
+
+    // Add GitHub config section if present
+    if let Some(ref gh) = config.github_config {
+        toml_content.push_str("\n\n[github]\n");
+        toml_content.push_str(&format!("token = \"{}\"\n", gh.token));
+        toml_content.push_str(&format!("gist_id = \"{}\"\n", gh.gist_id));
+        toml_content.push_str(&format!("auto_sync = {}\n", gh.auto_sync));
+    }
 
     fs::write(&config_path, toml_content).context("Failed to write configuration file")?;
 
@@ -357,33 +475,54 @@ pub fn load_config() -> Result<Config> {
 
     let content = fs::read_to_string(&config_path).context("Failed to read configuration file")?;
 
-    // Simple TOML parsing (you could use the `toml` crate for more robust parsing)
+    // Parse TOML properly
+    let parsed: toml::Value =
+        toml::from_str(&content).context("Failed to parse configuration file as TOML")?;
+
     let mut config = Config::default();
 
-    for line in content.lines() {
-        let line = line.trim();
-        if line.starts_with('#') || line.is_empty() {
-            continue;
+    // Parse database section
+    if let Some(db_section) = parsed.get("database") {
+        if let Some(path) = db_section.get("path").and_then(|v| v.as_str()) {
+            config.db_path = PathBuf::from(path);
         }
+    }
 
-        if let Some((key, value)) = line.split_once('=') {
-            let key = key.trim();
-            let value = value.trim().trim_matches('"');
+    // Parse security section
+    if let Some(sec_section) = parsed.get("security") {
+        if let Some(timeout) = sec_section
+            .get("default_clear_seconds")
+            .and_then(|v| v.as_integer())
+        {
+            config.default_clear_seconds = timeout as u64;
+        }
+    }
 
-            match key {
-                "path" => config.db_path = PathBuf::from(value),
-                "default_clear_seconds" => {
-                    config.default_clear_seconds = value
-                        .parse()
-                        .context("Invalid default_clear_seconds in config")?;
-                }
-                "enabled" => {
-                    config.auto_backup = value
-                        .parse()
-                        .context("Invalid backup enabled setting in config")?;
-                }
-                _ => {} // Ignore unknown keys
+    // Parse backup section
+    if let Some(backup_section) = parsed.get("backup") {
+        if let Some(enabled) = backup_section.get("enabled").and_then(|v| v.as_bool()) {
+            config.auto_backup = enabled;
+        }
+        if let Some(path) = backup_section.get("path").and_then(|v| v.as_str()) {
+            config.backup_path = Some(PathBuf::from(path));
+        }
+    }
+
+    // Parse GitHub section
+    if let Some(github_section) = parsed.get("github") {
+        if let (Some(token), Some(gist_id)) = (
+            github_section.get("token").and_then(|v| v.as_str()),
+            github_section.get("gist_id").and_then(|v| v.as_str()),
+        ) {
+            let mut gh_config =
+                crate::github_sync::GitHubConfig::new(token.to_string(), gist_id.to_string());
+            if let Some(auto_sync) = github_section.get("auto_sync").and_then(|v| v.as_bool()) {
+                gh_config.auto_sync = auto_sync;
             }
+            if let Some(last_sync) = github_section.get("last_sync").and_then(|v| v.as_str()) {
+                gh_config.last_sync = Some(last_sync.to_string());
+            }
+            config.github_config = Some(gh_config);
         }
     }
 

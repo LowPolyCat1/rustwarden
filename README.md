@@ -11,6 +11,7 @@ A secure, local password manager built in Rust.
 - **Backup System**: Optional automatic backups with restore functionality
 - **Clean CLI**: Colorful terminal interface with interactive setup
 - **Cross-Platform**: Works on Windows, macOS, and Linux
+- **Sync via github gists:** Syncs the passwords via github
 
 ## Security
 
@@ -41,26 +42,31 @@ During first-time setup, RustWarden can automatically integrate with your system
 ## Quick Start
 
 1. **First Run**: RustWarden will automatically launch the setup wizard
+
    ```bash
    ./rustwarden list
    ```
 
 2. **Add a Password**: Store a new password entry
+
    ```bash
    rustwarden add github myusername
    ```
 
 3. **Generate a Password**: Create and store a new secure password
+
    ```bash
    rustwarden new gmail --length 16 --require-symbols
    ```
 
 4. **Retrieve a Password**: Copy password to clipboard
+
    ```bash
    rustwarden get github
    ```
 
 5. **List All Entries**: View all stored services
+
    ```bash
    rustwarden list
    ```
@@ -178,6 +184,7 @@ path = "/path/to/backup/directory"
 ```
 
 Backups are created automatically when:
+
 - Adding new entries
 - Modifying existing entries
 - Deleting entries
@@ -196,6 +203,7 @@ rustwarden load-backup /path/to/backup.enc
 ```
 
 The restore process:
+
 1. Shows backup contents for verification
 2. Creates a safety backup of current database
 3. Replaces current database with backup data
