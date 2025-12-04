@@ -63,7 +63,7 @@ impl GitHubSync {
     /// Creates a new GitHub sync handler
     pub fn new(token: String, gist_id: String) -> Self {
         Self {
-            token: SecretString::new(token),
+            token: SecretString::new(token.into()),
             gist_id,
         }
     }

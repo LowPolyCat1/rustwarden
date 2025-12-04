@@ -7,7 +7,7 @@ mod tests {
 
     #[test]
     fn test_key_derivation() {
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
         let salt = [0u8; 16];
 
         let key1 = derive_key(&password, &salt).unwrap();
@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn test_key_derivation_different_salts() {
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
         let salt1 = [0u8; 16];
         let salt2 = [1u8; 16];
 
@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn test_encryption_decryption() {
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
         let plaintext = b"Hello, World! This is a test message.";
 
         let encrypted = encrypt_blob(plaintext, &password).unwrap();
@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn test_encryption_different_each_time() {
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
         let plaintext = b"Hello, World!";
 
         let encrypted1 = encrypt_blob(plaintext, &password).unwrap();
@@ -62,8 +62,8 @@ mod tests {
 
     #[test]
     fn test_decryption_wrong_password() {
-        let password1 = SecretString::new("correct_password".to_string());
-        let password2 = SecretString::new("wrong_password".to_string());
+        let password1 = SecretString::new("correct_password".to_string().into());
+        let password2 = SecretString::new("wrong_password".to_string().into());
         let plaintext = b"Secret message";
 
         let encrypted = encrypt_blob(plaintext, &password1).unwrap();
@@ -74,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_decrypt_invalid_data() {
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
         let invalid_data = b"not encrypted data";
 
         let result = decrypt_blob(invalid_data, &password);
@@ -129,7 +129,7 @@ mod tests {
     fn test_db_save_load_empty() {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = PathBuf::from(temp_file.path());
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
         let entries: Vec<Entry> = vec![];
 
         save_db(&db_path, &entries, &password).unwrap();
@@ -142,7 +142,7 @@ mod tests {
     fn test_db_save_load_with_entries() {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = PathBuf::from(temp_file.path());
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
 
         let entries = vec![
             Entry {
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn test_db_load_nonexistent() {
         let db_path = PathBuf::from("nonexistent_file.enc");
-        let password = SecretString::new("test_password".to_string());
+        let password = SecretString::new("test_password".to_string().into());
 
         let loaded = load_db(&db_path, &password).unwrap();
         assert_eq!(loaded.len(), 0);
@@ -182,8 +182,8 @@ mod tests {
     fn test_db_load_wrong_password() {
         let temp_file = NamedTempFile::new().unwrap();
         let db_path = PathBuf::from(temp_file.path());
-        let password1 = SecretString::new("correct_password".to_string());
-        let password2 = SecretString::new("wrong_password".to_string());
+        let password1 = SecretString::new("correct_password".to_string().into());
+        let password2 = SecretString::new("wrong_password".to_string().into());
 
         let entries = vec![Entry {
             service: "test".to_string(),

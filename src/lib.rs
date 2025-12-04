@@ -358,5 +358,5 @@ pub fn generate_password(
 #[cfg(test)]
 mod test;
 
-pub mod setup;
 pub mod github_sync;
+pub mod setup;

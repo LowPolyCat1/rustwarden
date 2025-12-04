@@ -4,29 +4,29 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0"
-clap = { version = "4.2", features = ["derive"] }
+anyhow = "1.0.100"
+clap = { version = "4.5.53", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-rand = { version = "0.8" }
-argon2 = "0.4"
-chacha20poly1305 = "0.10"
-secrecy = "0.8"
-rpassword = "7.0"
-zeroize = "1.5"
+serde_json = "1.0.145"
+rand = { version = "0.8.0" }
+argon2 = "0.5.3"
+chacha20poly1305 = "0.10.1"
+secrecy = "0.8.0"
+rpassword = "7.4.0"
+zeroize = "1.8.2"
 arboard = "3.6.1"
-dirs = "5.0"
-crossterm = "0.27"
-console = "0.15"
-clearscreen = "2.0"
-chrono = { version = "0.4", features = ["serde"] }
-base64 = "*"
-reqwest = { version = "*", features = ["json", "blocking", "rustls-tls"] }
-tokio = { version = "1.35", features = ["full"] }
-toml = "0.8"
+dirs = "6.0.0"
+crossterm = "0.29.0"
+console = "0.16.1"
+clearscreen = "4.0.2"
+chrono = { version = "0.4.42", features = ["serde"] }
+base64 = "0.22.1"
+reqwest = { version = "0.12.24", features = ["json", "blocking", "rustls-tls"] }
+tokio = { version = "1.48.0", features = ["full"] }
+toml = "0.9.8"
 
 [dev-dependencies]
-criterion = { version = "0.7", features = ["html_reports"] }
+criterion = { version = "0.8.0", features = ["html_reports"] }
 tempfile = "3.8"
 
 [[bench]]
