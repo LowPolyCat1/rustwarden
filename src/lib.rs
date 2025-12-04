@@ -12,7 +12,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
 };
 use rand::{RngCore, rng};
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::{ExposeSecret, SecretBox, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -66,11 +66,11 @@ pub fn read_password(prompt: &str) -> Result<SecretString> {
 /// * `salt` - Random salt bytes to prevent rainbow table attacks
 ///
 /// # Returns
-/// * `Result<Vec<u8>>` - A 256-bit derived key
+/// * `Result<SecretBox<[u8]>>` - A 256-bit derived key wrapped in SecretBox
 ///
 /// # Errors
 /// Returns an error if Argon2 parameter creation or key derivation fails
-pub fn derive_key(password: &SecretString, salt: &[u8]) -> Result<Vec<u8>> {
+pub fn derive_key(password: &SecretString, salt: &[u8]) -> Result<SecretBox<[u8]>> {
     let mem_kib: u32 = 64 * 1024;
     let iterations: u32 = 3;
     let parallelism: u32 = 1;
@@ -81,7 +81,7 @@ pub fn derive_key(password: &SecretString, salt: &[u8]) -> Result<Vec<u8>> {
     argon2
         .hash_password_into(password.expose_secret().as_bytes(), salt, &mut out)
         .map_err(|e| anyhow!("argon2 key derivation failed: {:?}", e))?;
-    Ok(out)
+    Ok(SecretBox::new(out.into_boxed_slice()))
 }
 
 /// Encrypts data using ChaCha20Poly1305 with a password-derived key
@@ -107,7 +107,7 @@ pub fn encrypt_blob(plaintext: &[u8], password: &SecretString) -> Result<Vec<u8>
     let mut rng = rng();
     rng.fill_bytes(&mut salt);
     let key_secret = derive_key(password, &salt)?;
-    let key = Key::from_slice(&key_secret);
+    let key = Key::from_slice(key_secret.expose_secret());
     let cipher = ChaCha20Poly1305::new(key);
     let mut nonce_bytes = vec![0u8; NONCE_LEN];
     rng.fill_bytes(&mut nonce_bytes);
@@ -150,7 +150,7 @@ pub fn decrypt_blob(filedata: &[u8], password: &SecretString) -> Result<Vec<u8>>
     let nonce_bytes = &filedata[SALT_LEN..SALT_LEN + NONCE_LEN];
     let ciphertext = &filedata[SALT_LEN + NONCE_LEN..];
     let key_secret = derive_key(password, salt)?;
-    let key = Key::from_slice(&key_secret);
+    let key = Key::from_slice(key_secret.expose_secret());
     let cipher = ChaCha20Poly1305::new(key);
     let nonce = Nonce::from_slice(nonce_bytes);
     let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|e| {
