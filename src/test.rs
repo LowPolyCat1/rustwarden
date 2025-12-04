@@ -14,8 +14,8 @@ mod tests {
         let key2 = derive_key(&password, &salt).unwrap();
 
         // Same password and salt should produce same key
-        assert_eq!(key1.expose_secret(), key2.expose_secret());
-        assert_eq!(key1.expose_secret().len(), KEY_LEN);
+        assert_eq!(key1, key2);
+        assert_eq!(key1.len(), KEY_LEN);
     }
 
     #[test]
@@ -28,7 +28,7 @@ mod tests {
         let key2 = derive_key(&password, &salt2).unwrap();
 
         // Different salts should produce different keys
-        assert_ne!(key1.expose_secret(), key2.expose_secret());
+        assert_ne!(key1, key2);
     }
 
     #[test]

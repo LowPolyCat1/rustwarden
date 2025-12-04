@@ -11,8 +11,8 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Key, Nonce,
     aead::{Aead, KeyInit},
 };
-use rand::{RngCore, rngs::OsRng};
-use secrecy::{ExposeSecret, SecretString, SecretVec};
+use rand::{RngCore, rng};
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -20,8 +20,6 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 use zeroize::Zeroize;
-
-/// Length of the salt used for key derivation (128 bits)
 pub const SALT_LEN: usize = 16;
 /// Length of the nonce used for encryption (96 bits for ChaCha20Poly1305)
 pub const NONCE_LEN: usize = 12;
@@ -55,7 +53,7 @@ pub struct Entry {
 /// Returns an error if reading from the terminal fails
 pub fn read_password(prompt: &str) -> Result<SecretString> {
     let pw = rpassword::prompt_password(prompt).context("failed to read password")?;
-    Ok(SecretString::new(pw))
+    Ok(SecretString::new(pw.into()))
 }
 
 /// Derives a cryptographic key from a password using Argon2id
@@ -68,11 +66,11 @@ pub fn read_password(prompt: &str) -> Result<SecretString> {
 /// * `salt` - Random salt bytes to prevent rainbow table attacks
 ///
 /// # Returns
-/// * `Result<SecretVec<u8>>` - A 256-bit derived key wrapped in SecretVec
+/// * `Result<Vec<u8>>` - A 256-bit derived key
 ///
 /// # Errors
 /// Returns an error if Argon2 parameter creation or key derivation fails
-pub fn derive_key(password: &SecretString, salt: &[u8]) -> Result<SecretVec<u8>> {
+pub fn derive_key(password: &SecretString, salt: &[u8]) -> Result<Vec<u8>> {
     let mem_kib: u32 = 64 * 1024;
     let iterations: u32 = 3;
     let parallelism: u32 = 1;
@@ -83,7 +81,7 @@ pub fn derive_key(password: &SecretString, salt: &[u8]) -> Result<SecretVec<u8>>
     argon2
         .hash_password_into(password.expose_secret().as_bytes(), salt, &mut out)
         .map_err(|e| anyhow!("argon2 key derivation failed: {:?}", e))?;
-    Ok(SecretVec::new(out))
+    Ok(out)
 }
 
 /// Encrypts data using ChaCha20Poly1305 with a password-derived key
@@ -106,12 +104,13 @@ pub fn derive_key(password: &SecretString, salt: &[u8]) -> Result<SecretVec<u8>>
 /// Returns an error if key derivation or encryption fails
 pub fn encrypt_blob(plaintext: &[u8], password: &SecretString) -> Result<Vec<u8>> {
     let mut salt = vec![0u8; SALT_LEN];
-    OsRng.fill_bytes(&mut salt);
+    let mut rng = rng();
+    rng.fill_bytes(&mut salt);
     let key_secret = derive_key(password, &salt)?;
-    let key = Key::from_slice(key_secret.expose_secret());
+    let key = Key::from_slice(&key_secret);
     let cipher = ChaCha20Poly1305::new(key);
     let mut nonce_bytes = vec![0u8; NONCE_LEN];
-    OsRng.fill_bytes(&mut nonce_bytes);
+    rng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher
         .encrypt(nonce, plaintext)
@@ -151,7 +150,7 @@ pub fn decrypt_blob(filedata: &[u8], password: &SecretString) -> Result<Vec<u8>>
     let nonce_bytes = &filedata[SALT_LEN..SALT_LEN + NONCE_LEN];
     let ciphertext = &filedata[SALT_LEN + NONCE_LEN..];
     let key_secret = derive_key(password, salt)?;
-    let key = Key::from_slice(key_secret.expose_secret());
+    let key = Key::from_slice(&key_secret);
     let cipher = ChaCha20Poly1305::new(key);
     let nonce = Nonce::from_slice(nonce_bytes);
     let plaintext = cipher.decrypt(nonce, ciphertext.as_ref()).map_err(|e| {
@@ -305,8 +304,8 @@ pub fn generate_password(
     req_digits: bool,
     req_symbols: bool,
 ) -> Result<String> {
+    use rand::Rng;
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
 
     const LOWER: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
     const UPPER: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -334,12 +333,13 @@ pub fn generate_password(
         bail!("Password length too short to satisfy requirements");
     }
 
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let mut password: Vec<u8> = Vec::new();
 
     for (set, required) in &categories {
         if *required {
-            password.push(*set.choose(&mut rng).unwrap());
+            let ch = rng.random_range(0..set.len());
+            password.push(set[ch]);
         }
     }
 
@@ -349,7 +349,8 @@ pub fn generate_password(
         .cloned()
         .collect();
     while password.len() < length {
-        password.push(*all.choose(&mut rng).unwrap());
+        let ch = rng.random_range(0..all.len());
+        password.push(all[ch]);
     }
     password.shuffle(&mut rng);
     Ok(String::from_utf8(password).unwrap())

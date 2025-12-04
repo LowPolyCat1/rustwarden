@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 fn bench_key_derivation(c: &mut Criterion) {
-    let password = SecretString::new("test_password".to_string());
+    let password = SecretString::new("test_password".to_string().into());
     let salt = [0u8; 16];
 
     c.bench_function("derive_key", |b| {
@@ -14,7 +14,7 @@ fn bench_key_derivation(c: &mut Criterion) {
 }
 
 fn bench_encryption(c: &mut Criterion) {
-    let password = SecretString::new("test_password".to_string());
+    let password = SecretString::new("test_password".to_string().into());
     let data = b"Hello, World! This is test data for encryption benchmarking.";
 
     c.bench_function("encrypt_blob", |b| {
@@ -25,7 +25,7 @@ fn bench_encryption(c: &mut Criterion) {
 }
 
 fn bench_decryption(c: &mut Criterion) {
-    let password = SecretString::new("test_password".to_string());
+    let password = SecretString::new("test_password".to_string().into());
     let data = b"Hello, World! This is test data for encryption benchmarking.";
     let encrypted = encrypt_blob(data, &password).unwrap();
 
@@ -60,7 +60,7 @@ fn bench_password_generation(c: &mut Criterion) {
 }
 
 fn bench_db_operations(c: &mut Criterion) {
-    let password = SecretString::new("test_password".to_string());
+    let password = SecretString::new("test_password".to_string().into());
     let entries = vec![
         Entry {
             service: "test1".to_string(),
