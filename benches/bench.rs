@@ -1,4 +1,4 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rustwarden::*;
 use secrecy::SecretString;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ fn bench_key_derivation(c: &mut Criterion) {
     let salt = [0u8; 16];
 
     c.bench_function("derive_key", |b| {
-        b.iter(|| derive_key(black_box(&password), black_box(&salt)).unwrap())
+        b.iter(|| derive_key(std::hint::black_box(&password), std::hint::black_box(&salt)).unwrap())
     });
 }
 
@@ -18,7 +18,9 @@ fn bench_encryption(c: &mut Criterion) {
     let data = b"Hello, World! This is test data for encryption benchmarking.";
 
     c.bench_function("encrypt_blob", |b| {
-        b.iter(|| encrypt_blob(black_box(data), black_box(&password)).unwrap())
+        b.iter(|| {
+            encrypt_blob(std::hint::black_box(data), std::hint::black_box(&password)).unwrap()
+        })
     });
 }
 
@@ -28,7 +30,13 @@ fn bench_decryption(c: &mut Criterion) {
     let encrypted = encrypt_blob(data, &password).unwrap();
 
     c.bench_function("decrypt_blob", |b| {
-        b.iter(|| decrypt_blob(black_box(&encrypted), black_box(&password)).unwrap())
+        b.iter(|| {
+            decrypt_blob(
+                std::hint::black_box(&encrypted),
+                std::hint::black_box(&password),
+            )
+            .unwrap()
+        })
     });
 }
 
@@ -36,15 +44,15 @@ fn bench_password_generation(c: &mut Criterion) {
     c.bench_function("generate_password", |b| {
         b.iter(|| {
             generate_password(
-                black_box(16),
-                black_box(true),
-                black_box(true),
-                black_box(true),
-                black_box(true),
-                black_box(true),
-                black_box(true),
-                black_box(true),
-                black_box(true),
+                std::hint::black_box(16),
+                std::hint::black_box(true),
+                std::hint::black_box(true),
+                std::hint::black_box(true),
+                std::hint::black_box(true),
+                std::hint::black_box(true),
+                std::hint::black_box(true),
+                std::hint::black_box(true),
+                std::hint::black_box(true),
             )
             .unwrap()
         })
@@ -72,12 +80,16 @@ fn bench_db_operations(c: &mut Criterion) {
             let db_path = PathBuf::from(temp_file.path());
 
             save_db(
-                black_box(&db_path),
-                black_box(&entries),
-                black_box(&password),
+                std::hint::black_box(&db_path),
+                std::hint::black_box(&entries),
+                std::hint::black_box(&password),
             )
             .unwrap();
-            load_db(black_box(&db_path), black_box(&password)).unwrap()
+            load_db(
+                std::hint::black_box(&db_path),
+                std::hint::black_box(&password),
+            )
+            .unwrap()
         })
     });
 }
